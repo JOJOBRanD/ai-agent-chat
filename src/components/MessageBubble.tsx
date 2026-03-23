@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Bot, User, Copy, Check, RefreshCw, AlertCircle, WifiOff } from "lucide-react";
+import { Bot, Copy, Check, RefreshCw, AlertCircle, WifiOff } from "lucide-react";
 import { Message } from "@/lib/types";
 import { cn, formatTime } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -29,67 +29,71 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
+      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
       className={cn(
-        "group flex gap-4 px-4 py-5 md:px-8 lg:px-16",
-        isUser ? "bg-transparent" : "bg-muted/30"
+        "group flex gap-3 px-4 py-3 md:px-8 lg:px-16",
+        isUser ? "justify-end" : "justify-start"
       )}
     >
-      {/* Avatar */}
-      <div className="flex-shrink-0 mt-0.5">
-        <div
-          className={cn(
-            "w-8 h-8 rounded-lg flex items-center justify-center",
-            "ring-1 ring-border/50",
-            isUser
-              ? "bg-primary/10 text-primary"
-              : "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/20"
-          )}
-        >
-          {isUser ? <User size={16} /> : <Bot size={16} />}
+      {/* Assistant avatar (left side) */}
+      {!isUser && (
+        <div className="flex-shrink-0 mt-1">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500
+                          flex items-center justify-center shadow-lg shadow-indigo-500/25
+                          ring-2 ring-white/10">
+            <Bot size={15} className="text-white" />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Content */}
-      <div className="flex-1 min-w-0 space-y-1">
-        {/* Header */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">
+      {/* Message bubble */}
+      <div className={cn("max-w-[75%] min-w-0", isUser ? "items-end" : "items-start")}>
+        {/* Name + time */}
+        <div className={cn(
+          "flex items-center gap-2 mb-1 px-1",
+          isUser ? "justify-end" : "justify-start"
+        )}>
+          <span className="text-[11px] font-medium text-muted-foreground/60">
             {isUser ? "You" : (agentName || "AI Agent")}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground/40">
             {formatTime(message.timestamp)}
           </span>
           {isStreaming && (
-            <span className="text-xs text-primary animate-pulse">generating...</span>
+            <span className="text-[10px] text-primary/80 animate-pulse">typing...</span>
           )}
         </div>
 
-        {/* Message content */}
-        <div className="text-foreground/90">
+        {/* Bubble */}
+        <div
+          className={cn(
+            "rounded-2xl px-4 py-3 transition-all duration-300",
+            isUser
+              ? "bg-primary text-primary-foreground rounded-br-md shadow-lg shadow-primary/20"
+              : "message-glass rounded-bl-md shadow-lg"
+          )}
+        >
           {isUser ? (
-            <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+            <p className="whitespace-pre-wrap leading-relaxed text-[0.9375rem]">
+              {message.content}
+            </p>
           ) : (
             <>
               {message.content ? (
-                <MarkdownRenderer
-                  content={message.content}
-                  isStreaming={isStreaming}
-                />
+                <MarkdownRenderer content={message.content} isStreaming={isStreaming} />
               ) : isStreaming ? (
-                /* 空内容 + streaming = 等待第一个 delta */
-                <div className="flex items-center gap-1.5 py-2">
+                <div className="flex items-center gap-1.5 py-1">
                   {[0, 1, 2].map((i) => (
                     <motion.div
                       key={i}
-                      className="w-2 h-2 rounded-full bg-muted-foreground/40"
-                      animate={{ scale: [1, 1.3, 1], opacity: [0.4, 1, 0.4] }}
+                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40"
+                      animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
                       transition={{
-                        duration: 1,
+                        duration: 1.2,
                         repeat: Infinity,
-                        delay: i * 0.2,
+                        delay: i * 0.15,
                         ease: "easeInOut",
                       }}
                     />
@@ -100,48 +104,46 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
           )}
         </div>
 
-        {/* Error / Interrupted 提示 */}
+        {/* Error / Interrupted */}
         {(isError || isInterrupted) && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
             className={cn(
-              "flex items-center gap-2 mt-2 px-3 py-2 rounded-lg text-xs",
+              "flex items-center gap-2 mt-2 px-3 py-2 rounded-xl text-xs",
+              "backdrop-blur-xl border",
               isError
-                ? "bg-red-500/10 text-red-500"
-                : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
+                ? "bg-red-500/10 border-red-500/20 text-red-500"
+                : "bg-yellow-500/10 border-yellow-500/20 text-yellow-600 dark:text-yellow-400"
             )}
           >
-            {isError ? <AlertCircle size={14} /> : <WifiOff size={14} />}
-            <span>
-              {isError
-                ? (message.errorMessage || "Something went wrong")
-                : "Connection interrupted"}
-            </span>
+            {isError ? <AlertCircle size={13} /> : <WifiOff size={13} />}
+            <span>{isError ? (message.errorMessage || "Something went wrong") : "Connection interrupted"}</span>
             {onRetry && (
               <button
                 onClick={() => onRetry(message.content)}
-                className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md
-                           hover:bg-white/10 transition-colors font-medium"
+                className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg
+                           bg-white/5 hover:bg-white/10 transition-colors font-medium"
               >
-                <RefreshCw size={12} /> Retry
+                <RefreshCw size={11} /> Retry
               </button>
             )}
           </motion.div>
         )}
 
-        {/* Action buttons for completed assistant messages */}
+        {/* Action buttons */}
         {!isUser && isDone && message.content && (
-          <div className="flex items-center gap-1 pt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="flex items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100
+                          transition-all duration-300">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground
-                         hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-[10px] text-muted-foreground/50
+                         hover:text-muted-foreground rounded-md hover:bg-muted/30 transition-all"
             >
               {copied ? (
-                <><Check size={13} className="text-green-500" /> Copied</>
+                <><Check size={11} className="text-green-500" /> Copied</>
               ) : (
-                <><Copy size={13} /> Copy</>
+                <><Copy size={11} /> Copy</>
               )}
             </button>
           </div>

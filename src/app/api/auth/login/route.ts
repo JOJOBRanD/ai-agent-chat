@@ -1,35 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authenticateUser, createSession } from "@/lib/users-db";
 
-// Mock login — 后续对接真实后端时替换
 export async function POST(req: NextRequest) {
   const { username, password } = await req.json();
 
-  // Mock: 任何用户名+密码都能登录
   if (!username || !password) {
-    return NextResponse.json(
-      { error: "Username and password required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Username and password required" }, { status: 400 });
   }
 
-  // Mock 验证（demo 模式：admin/admin 或任意账号）
-  const user = {
-    userId: "user_001",
-    username: username,
-    displayName: username.charAt(0).toUpperCase() + username.slice(1),
-    agentName: "AI Agent Pro",
-    agentAvatar: null,
-  };
+  const user = authenticateUser(username, password);
+  if (!user) {
+    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  }
 
-  const response = NextResponse.json(user);
+  const token = createSession(user.username);
 
-  // 设置 mock cookie
-  response.cookies.set("session", "mock_session_token", {
+  const response = NextResponse.json({
+    userId: user.userId,
+    username: user.username,
+    displayName: user.displayName,
+    agentName: user.agentName,
+    role: user.role,
+  });
+
+  response.cookies.set("session", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    maxAge: 60 * 60 * 24 * 7,
   });
 
   return response;

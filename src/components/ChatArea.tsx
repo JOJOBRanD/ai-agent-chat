@@ -28,7 +28,6 @@ export default function ChatArea() {
   const user = useAuthStore((s) => s.user);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  // 跟踪当前流式 assistant 消息的临时 ID
   const currentAssistantIdRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -41,7 +40,6 @@ export default function ChatArea() {
 
   const handleSend = useCallback(
     (text: string) => {
-      // 1. 插入用户消息
       const userMsg: Message = {
         id: generateId(),
         role: "user",
@@ -51,7 +49,6 @@ export default function ChatArea() {
       };
       addMessage(userMsg);
 
-      // 2. 插入 assistant 占位消息
       const tempAssistantId = generateId();
       const assistantMsg: Message = {
         id: tempAssistantId,
@@ -63,13 +60,10 @@ export default function ChatArea() {
       addMessage(assistantMsg);
       currentAssistantIdRef.current = tempAssistantId;
 
-      // 3. 进入发送中状态
       setIsSending(true);
 
-      // 4. SSE 回调
       const callbacks: SSECallbacks = {
         onAssistantStart: (data) => {
-          // 用后端返回的 messageId 替换临时 ID
           replaceMessageId(tempAssistantId, data.messageId);
           currentAssistantIdRef.current = data.messageId;
         },
@@ -81,7 +75,6 @@ export default function ChatArea() {
 
         onAssistantFinal: (data) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
-          // 以 final 全文为准
           updateMessageContent(id, data.content);
           setMessageStatus(id, "done");
           setIsSending(false);
@@ -90,7 +83,6 @@ export default function ChatArea() {
 
         onError: (data) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
-          // AUTH_REQUIRED 跳登录
           if (data.code === "AUTH_REQUIRED") {
             window.location.href = "/login";
             return;
@@ -101,7 +93,6 @@ export default function ChatArea() {
         },
 
         onDone: () => {
-          // 流结束（如果 final 已处理，这里只是确认）
           setIsSending(false);
         },
 
@@ -113,13 +104,11 @@ export default function ChatArea() {
         },
       };
 
-      // 5. 发起流式请求
       abortControllerRef.current = streamChat(text, callbacks);
     },
     [addMessage, appendMessageContent, updateMessageContent, setMessageStatus, replaceMessageId, setIsSending]
   );
 
-  // 中断流
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -133,11 +122,8 @@ export default function ChatArea() {
     setIsSending(false);
   }, [setMessageStatus, setIsSending]);
 
-  // 重试
   const handleRetry = useCallback(
     (text: string) => {
-      // 重新发送同样的文本（注意：这里用 user 上一条消息的 text）
-      // 找到最后一条 user 消息
       const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
       if (lastUserMsg) {
         handleSend(lastUserMsg.content);
@@ -153,22 +139,27 @@ export default function ChatArea() {
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0">
-      {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background/80 backdrop-blur-lg">
+      {/* Glass top bar */}
+      <div className="flex items-center gap-3 px-5 py-3
+                      border-b border-black/[0.04] dark:border-white/[0.06]
+                      bg-white/60 dark:bg-black/40 backdrop-blur-2xl">
         {!sidebarOpen && (
           <button
             onClick={toggleSidebar}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground
-                       hover:bg-muted transition-colors"
+            className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground
+                       hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all duration-200"
             aria-label="Open sidebar"
           >
-            <PanelLeftOpen size={18} />
+            <PanelLeftOpen size={17} />
           </button>
         )}
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-sm font-medium">
+        <div className="flex items-center gap-2.5">
+          <div className="w-2 h-2 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
+          <span className="text-sm font-semibold tracking-tight text-foreground">
             {user?.agentName || "AI Agent"}
+          </span>
+          <span className="text-[10px] text-muted-foreground/40 font-medium">
+            Ready
           </span>
         </div>
       </div>
@@ -178,7 +169,7 @@ export default function ChatArea() {
         {messages.length === 0 ? (
           <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
         ) : (
-          <div className="pb-4">
+          <div className="pb-4 pt-2">
             <AnimatePresence mode="popLayout">
               {messages.map((msg) => (
                 <MessageBubble

@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUserBySession } from "@/lib/users-db";
 
 export async function GET(req: NextRequest) {
-  const session = req.cookies.get("session")?.value;
-
-  if (!session) {
+  const token = req.cookies.get("session")?.value;
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Mock user info
+  const user = getUserBySession(token);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   return NextResponse.json({
-    userId: "user_001",
-    username: "demo",
-    displayName: "Demo User",
-    agentName: "AI Agent Pro",
-    agentAvatar: null,
+    userId: user.userId,
+    username: user.username,
+    displayName: user.displayName,
+    agentName: user.agentName,
+    role: user.role,
   });
 }
