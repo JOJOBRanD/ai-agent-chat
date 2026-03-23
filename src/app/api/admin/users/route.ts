@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserBySession, getAllUsers, addUser, updateUser, deleteUser } from "@/lib/users-db";
 
-// 鉴权：必须是 admin
 function requireAdmin(req: NextRequest) {
   const token = req.cookies.get("session")?.value;
   if (!token) return null;
@@ -10,7 +9,7 @@ function requireAdmin(req: NextRequest) {
   return user;
 }
 
-// GET: 获取所有普通用户
+// GET: list all non-admin users
 export async function GET(req: NextRequest) {
   if (!requireAdmin(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -20,20 +19,21 @@ export async function GET(req: NextRequest) {
     userId: u.userId,
     username: u.username,
     displayName: u.displayName,
-    agentName: u.agentName,
+    avatar: u.avatar ? `/api/upload/avatar/${u.avatar}` : undefined,
+    agents: u.agents || [],
     createdAt: u.createdAt,
   }));
 
   return NextResponse.json(users);
 }
 
-// POST: 新增用户
+// POST: create user
 export async function POST(req: NextRequest) {
   if (!requireAdmin(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { username, password, displayName, agentName } = await req.json();
+  const { username, password, displayName, agents } = await req.json();
 
   if (!username || !password) {
     return NextResponse.json({ error: "username and password required" }, { status: 400 });
@@ -44,13 +44,13 @@ export async function POST(req: NextRequest) {
       username,
       password,
       displayName: displayName || username,
-      agentName: agentName || "AI Agent",
+      agents,
     });
     return NextResponse.json({
       userId: user.userId,
       username: user.username,
       displayName: user.displayName,
-      agentName: user.agentName,
+      agents: user.agents,
       createdAt: user.createdAt,
     });
   } catch (err: unknown) {
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PUT: 更新用户
+// PUT: update user
 export async function PUT(req: NextRequest) {
   if (!requireAdmin(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -79,7 +79,8 @@ export async function PUT(req: NextRequest) {
       userId: user.userId,
       username: user.username,
       displayName: user.displayName,
-      agentName: user.agentName,
+      avatar: user.avatar ? `/api/upload/avatar/${user.avatar}` : undefined,
+      agents: user.agents,
       createdAt: user.createdAt,
     });
   } catch (err: unknown) {
@@ -88,7 +89,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE: 删除用户
+// DELETE: remove user
 export async function DELETE(req: NextRequest) {
   if (!requireAdmin(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

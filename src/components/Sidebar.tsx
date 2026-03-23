@@ -6,29 +6,48 @@ import {
   Sun,
   Moon,
   PanelLeftClose,
-  Zap,
   LogOut,
   User,
   Shield,
+  MessageSquare,
 } from "lucide-react";
 import { useChatStore, useAuthStore } from "@/lib/store";
 import { logout } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
+
+// Agent 颜色映射
+const AGENT_COLORS: Record<string, string> = {
+  indigo: "from-indigo-500 to-purple-500",
+  blue: "from-blue-500 to-cyan-500",
+  green: "from-green-500 to-emerald-500",
+  orange: "from-orange-500 to-amber-500",
+  pink: "from-pink-500 to-rose-500",
+  red: "from-red-500 to-pink-500",
+  teal: "from-teal-500 to-cyan-500",
+  violet: "from-violet-500 to-purple-500",
+};
 
 export default function Sidebar() {
-  const { sidebarOpen, theme, toggleSidebar, toggleTheme } = useChatStore();
+  const {
+    sidebarOpen,
+    theme,
+    currentAgentId,
+    toggleSidebar,
+    toggleTheme,
+    setCurrentAgent,
+    setSettingsOpen,
+  } = useChatStore();
   const { user, logout: clearAuth } = useAuthStore();
   const router = useRouter();
 
   const handleLogout = async () => {
-    try {
-      await logout();
-    } catch {
-      // ignore
-    }
+    try { await logout(); } catch { /* ignore */ }
     clearAuth();
     router.replace("/login");
   };
+
+  const agents = user?.agents || [];
 
   return (
     <AnimatePresence mode="wait">
@@ -45,13 +64,8 @@ export default function Sidebar() {
             {/* Header */}
             <div className="flex items-center justify-between p-4 pb-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500
-                                flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                  <Zap size={14} className="text-white" />
-                </div>
-                <span className="font-semibold text-sm gradient-text tracking-tight">
-                  {user?.agentName || "AI Agent"}
-                </span>
+                <MessageSquare size={16} className="text-primary" />
+                <span className="font-semibold text-sm tracking-tight">Conversations</span>
               </div>
               <button
                 onClick={toggleSidebar}
@@ -63,36 +77,66 @@ export default function Sidebar() {
               </button>
             </div>
 
-            {/* Agent info card */}
-            <div className="px-3 py-4">
-              <div className="p-4 rounded-2xl bg-white/50 dark:bg-white/[0.04]
-                              border border-black/[0.04] dark:border-white/[0.06]
-                              backdrop-blur-xl">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500
-                                  flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                    <Zap size={18} className="text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground tracking-tight">
-                      {user?.agentName || "AI Agent"}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
-                      <p className="text-[11px] text-green-600 dark:text-green-400 font-medium">
-                        Online
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground/70 leading-relaxed">
-                  Your personal AI assistant. Ask me anything about coding, analysis, or creative tasks.
-                </p>
-              </div>
-            </div>
+            {/* Agent list */}
+            <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+              {agents.map((agent) => {
+                const isActive = agent.agentId === currentAgentId;
+                const gradient = AGENT_COLORS[agent.color || "indigo"] || AGENT_COLORS.indigo;
 
-            {/* Spacer */}
-            <div className="flex-1" />
+                return (
+                  <motion.button
+                    key={agent.agentId}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setCurrentAgent(agent.agentId)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left",
+                      "transition-all duration-200",
+                      isActive
+                        ? "bg-white/70 dark:bg-white/[0.08] shadow-sm border border-black/[0.04] dark:border-white/[0.06]"
+                        : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                    )}
+                  >
+                    {/* Agent avatar */}
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
+                      "bg-gradient-to-br shadow-lg",
+                      gradient,
+                      isActive ? "shadow-md" : "shadow-sm opacity-80"
+                    )}>
+                      <span className="text-lg">
+                        {agent.avatar || "🤖"}
+                      </span>
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={cn(
+                        "text-sm font-medium truncate tracking-tight",
+                        isActive ? "text-foreground" : "text-foreground/70"
+                      )}>
+                        {agent.name}
+                      </p>
+                      {agent.description && (
+                        <p className="text-[10px] text-muted-foreground/50 truncate mt-0.5">
+                          {agent.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Active indicator */}
+                    {isActive && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50 flex-shrink-0" />
+                    )}
+                  </motion.button>
+                );
+              })}
+
+              {agents.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-xs text-muted-foreground/40">No agents assigned</p>
+                </div>
+              )}
+            </div>
 
             {/* User info + Footer */}
             <div className="p-3 border-t border-black/[0.04] dark:border-white/[0.06] space-y-1">
@@ -100,8 +144,14 @@ export default function Sidebar() {
               {user && (
                 <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl
                                 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors">
-                  <div className="w-8 h-8 rounded-[10px] bg-primary/10 flex items-center justify-center">
-                    <User size={14} className="text-primary" />
+                  {/* User avatar */}
+                  <div className="w-8 h-8 rounded-full overflow-hidden
+                                  bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    {user.avatar ? (
+                      <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={14} className="text-primary" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-foreground truncate tracking-tight">
@@ -144,6 +194,7 @@ export default function Sidebar() {
                     </button>
                   )}
                   <button
+                    onClick={() => setSettingsOpen(true)}
                     className="p-2 rounded-lg text-muted-foreground/60 hover:text-foreground
                                hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-all duration-200"
                     aria-label="Settings"

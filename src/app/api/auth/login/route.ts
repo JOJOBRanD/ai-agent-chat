@@ -19,8 +19,9 @@ export async function POST(req: NextRequest) {
     userId: user.userId,
     username: user.username,
     displayName: user.displayName,
-    agentName: user.agentName,
+    avatar: user.avatar ? `/api/upload/avatar/${user.avatar}` : undefined,
     role: user.role,
+    agents: user.agents || [],
   });
 
   response.cookies.set("session", token, {

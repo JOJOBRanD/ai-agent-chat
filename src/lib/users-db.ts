@@ -1,27 +1,42 @@
 /**
  * 用户数据库（JSON 文件持久化）
- * 用户数据保存在 data/users.json
- * Session 保存在 data/sessions.json（服务重启不丢失登录状态）
+ * - data/users.json   用户 + agent 配置
+ * - data/sessions.json 登录 session
+ * - data/chats/       聊天记录 (per user per agent)
+ * - data/avatars/     用户头像文件
  */
 
 import fs from "fs";
 import path from "path";
+import type { AgentInfo, Message } from "./types";
 
 export interface UserRecord {
   userId: string;
   username: string;
   password: string;
   displayName: string;
-  agentName: string;
+  avatar?: string;            // 头像文件路径 (relative to /data/avatars/)
   role: "admin" | "user";
+  agents: AgentInfo[];        // 分配给该用户的 agents
   createdAt: number;
 }
 
-// === 文件持久化 ===
-
+// === 路径 ===
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
+const CHATS_DIR = path.join(DATA_DIR, "chats");
+const AVATARS_DIR = path.join(DATA_DIR, "avatars");
+const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
+
+// 默认 Agent
+const DEFAULT_AGENT: AgentInfo = {
+  agentId: "agent_default",
+  name: "AI Agent",
+  description: "General purpose AI assistant",
+  avatar: "🤖",
+  color: "indigo",
+};
 
 // 预置管理员
 const DEFAULT_ADMIN: UserRecord = {
@@ -29,21 +44,29 @@ const DEFAULT_ADMIN: UserRecord = {
   username: "Admin",
   password: "ZJM",
   displayName: "Administrator",
-  agentName: "AI Agent Pro",
   role: "admin",
+  agents: [DEFAULT_AGENT],
   createdAt: Date.now(),
 };
 
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+// === 目录初始化 ===
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-// --- Users ---
+function ensureAllDirs(): void {
+  ensureDir(DATA_DIR);
+  ensureDir(CHATS_DIR);
+  ensureDir(AVATARS_DIR);
+  ensureDir(UPLOADS_DIR);
+}
+
+// === Users 持久化 ===
 
 function loadUsers(): UserRecord[] {
-  ensureDataDir();
+  ensureAllDirs();
   if (!fs.existsSync(USERS_FILE)) {
     const initial = [DEFAULT_ADMIN];
     fs.writeFileSync(USERS_FILE, JSON.stringify(initial, null, 2), "utf-8");
@@ -52,10 +75,20 @@ function loadUsers(): UserRecord[] {
   try {
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     const data = JSON.parse(raw) as UserRecord[];
+    // 确保管理员始终存在
     if (!data.find((u) => u.userId === "admin_001")) {
       data.unshift(DEFAULT_ADMIN);
       saveUsers(data);
     }
+    // 确保每个用户至少有 agents 数组
+    let dirty = false;
+    for (const u of data) {
+      if (!u.agents || u.agents.length === 0) {
+        u.agents = [DEFAULT_AGENT];
+        dirty = true;
+      }
+    }
+    if (dirty) saveUsers(data);
     return data;
   } catch {
     const initial = [DEFAULT_ADMIN];
@@ -65,21 +98,20 @@ function loadUsers(): UserRecord[] {
 }
 
 function saveUsers(users: UserRecord[]): void {
-  ensureDataDir();
+  ensureAllDirs();
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
 }
 
-// --- Sessions (也持久化到文件) ---
+// === Sessions 持久化 ===
 
 function loadSessions(): Record<string, string> {
-  ensureDataDir();
+  ensureAllDirs();
   if (!fs.existsSync(SESSIONS_FILE)) {
     fs.writeFileSync(SESSIONS_FILE, "{}", "utf-8");
     return {};
   }
   try {
-    const raw = fs.readFileSync(SESSIONS_FILE, "utf-8");
-    return JSON.parse(raw) as Record<string, string>;
+    return JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf-8"));
   } catch {
     fs.writeFileSync(SESSIONS_FILE, "{}", "utf-8");
     return {};
@@ -87,11 +119,65 @@ function loadSessions(): Record<string, string> {
 }
 
 function saveSessions(sessions: Record<string, string>): void {
-  ensureDataDir();
+  ensureAllDirs();
   fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2), "utf-8");
 }
 
-// --- Next user ID ---
+// === Chat History 持久化 ===
+
+function chatFilePath(userId: string, agentId: string): string {
+  return path.join(CHATS_DIR, `${userId}_${agentId}.json`);
+}
+
+export function loadChatHistory(userId: string, agentId: string): Message[] {
+  ensureAllDirs();
+  const fp = chatFilePath(userId, agentId);
+  if (!fs.existsSync(fp)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(fp, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+export function saveChatHistory(userId: string, agentId: string, messages: Message[]): void {
+  ensureAllDirs();
+  fs.writeFileSync(chatFilePath(userId, agentId), JSON.stringify(messages, null, 2), "utf-8");
+}
+
+export function appendChatMessage(userId: string, agentId: string, message: Message): void {
+  const messages = loadChatHistory(userId, agentId);
+  // 如果已存在同 ID 消息则更新
+  const idx = messages.findIndex((m) => m.id === message.id);
+  if (idx >= 0) {
+    messages[idx] = message;
+  } else {
+    messages.push(message);
+  }
+  saveChatHistory(userId, agentId, messages);
+}
+
+export function updateChatMessage(userId: string, agentId: string, messageId: string, updates: Partial<Message>): void {
+  const messages = loadChatHistory(userId, agentId);
+  const idx = messages.findIndex((m) => m.id === messageId);
+  if (idx >= 0) {
+    messages[idx] = { ...messages[idx], ...updates };
+    saveChatHistory(userId, agentId, messages);
+  }
+}
+
+// === 头像文件路径 ===
+export function getAvatarDir(): string {
+  ensureAllDirs();
+  return AVATARS_DIR;
+}
+
+export function getUploadsDir(): string {
+  ensureAllDirs();
+  return UPLOADS_DIR;
+}
+
+// === Next user ID ===
 
 function getNextUserId(): string {
   const users = loadUsers();
@@ -154,7 +240,7 @@ export function addUser(data: {
   username: string;
   password: string;
   displayName: string;
-  agentName: string;
+  agents?: AgentInfo[];
 }): UserRecord {
   if (findUserByUsername(data.username)) {
     throw new Error("Username already exists");
@@ -166,8 +252,8 @@ export function addUser(data: {
     username: data.username,
     password: data.password,
     displayName: data.displayName,
-    agentName: data.agentName,
     role: "user",
+    agents: data.agents && data.agents.length > 0 ? data.agents : [DEFAULT_AGENT],
     createdAt: Date.now(),
   };
   users.push(user);
@@ -177,7 +263,13 @@ export function addUser(data: {
 
 export function updateUser(
   userId: string,
-  data: Partial<{ username: string; password: string; displayName: string; agentName: string }>
+  data: Partial<{
+    username: string;
+    password: string;
+    displayName: string;
+    avatar: string;
+    agents: AgentInfo[];
+  }>
 ): UserRecord | null {
   const users = loadUsers();
   const idx = users.findIndex((u) => u.userId === userId);
@@ -200,3 +292,6 @@ export function deleteUser(userId: string): boolean {
   saveUsers(users);
   return true;
 }
+
+// 导出默认 agent 供其他模块使用
+export { DEFAULT_AGENT };

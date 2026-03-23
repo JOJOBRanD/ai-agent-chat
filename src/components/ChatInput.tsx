@@ -1,20 +1,32 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Send, Paperclip, Square, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Send, Paperclip, Square, Sparkles, X, FileText, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Attachment } from "@/lib/types";
+import { uploadFile } from "@/lib/api";
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, attachments?: Attachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
+}
+
+interface PendingFile {
+  file: File;
+  previewUrl?: string; // for images
+  uploading: boolean;
+  uploaded?: Attachment;
+  error?: string;
 }
 
 export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -24,15 +36,64 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   }, [input]);
 
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const newPending: PendingFile[] = files.map((file) => ({
+      file,
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+      uploading: true,
+    }));
+
+    setPendingFiles((prev) => [...prev, ...newPending]);
+
+    // Upload each file
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const result = await uploadFile(files[i]);
+        setPendingFiles((prev) =>
+          prev.map((pf) =>
+            pf.file === files[i] ? { ...pf, uploading: false, uploaded: result } : pf
+          )
+        );
+      } catch {
+        setPendingFiles((prev) =>
+          prev.map((pf) =>
+            pf.file === files[i] ? { ...pf, uploading: false, error: "Upload failed" } : pf
+          )
+        );
+      }
+    }
+
+    // Clear file input
+    if (fileRef.current) fileRef.current.value = "";
+  }, []);
+
+  const removeFile = useCallback((file: File) => {
+    setPendingFiles((prev) => {
+      const item = prev.find((pf) => pf.file === file);
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((pf) => pf.file !== file);
+    });
+  }, []);
+
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || disabled) return;
-    onSend(trimmed);
+    const attachments = pendingFiles
+      .filter((pf) => pf.uploaded)
+      .map((pf) => pf.uploaded!);
+
+    if (!trimmed && attachments.length === 0) return;
+    if (disabled) return;
+
+    onSend(trimmed, attachments.length > 0 ? attachments : undefined);
     setInput("");
+    setPendingFiles([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, disabled, onSend]);
+  }, [input, disabled, onSend, pendingFiles]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -44,9 +105,83 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
     [handleSubmit]
   );
 
+  const hasContent = input.trim() || pendingFiles.some((pf) => pf.uploaded);
+  const isUploading = pendingFiles.some((pf) => pf.uploading);
+
   return (
     <div className="relative px-4 pb-5 pt-2 md:px-8 lg:px-16">
-      {/* Frosted glass input container */}
+      {/* File preview area */}
+      <AnimatePresence>
+        {pendingFiles.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex flex-wrap gap-2 mb-2 px-2"
+          >
+            {pendingFiles.map((pf, idx) => (
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="relative group"
+              >
+                {pf.previewUrl ? (
+                  /* Image preview */
+                  <div className="relative w-20 h-20 rounded-xl overflow-hidden border
+                                  border-black/[0.06] dark:border-white/[0.08]">
+                    <img
+                      src={pf.previewUrl}
+                      alt=""
+                      className={cn(
+                        "w-full h-full object-cover",
+                        pf.uploading && "opacity-50"
+                      )}
+                    />
+                    {pf.uploading && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                    {pf.error && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-red-500/20">
+                        <span className="text-[9px] text-red-500 font-bold">Error</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* File preview */
+                  <div className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-xl border",
+                    "bg-white/50 dark:bg-white/[0.04]",
+                    "border-black/[0.06] dark:border-white/[0.08]",
+                    pf.uploading && "opacity-60"
+                  )}>
+                    <FileText size={14} className="text-primary flex-shrink-0" />
+                    <span className="text-[11px] max-w-[120px] truncate">{pf.file.name}</span>
+                    {pf.uploading && (
+                      <div className="w-3 h-3 border border-primary border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                )}
+                {/* Remove button */}
+                <button
+                  onClick={() => removeFile(pf.file)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full
+                             bg-black/70 dark:bg-white/20 text-white
+                             flex items-center justify-center
+                             opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X size={10} />
+                </button>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Input container */}
       <motion.div
         className={cn(
           "relative flex items-end gap-2 rounded-2xl border transition-all duration-300",
@@ -60,6 +195,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
       >
         {/* Attachment button */}
         <button
+          onClick={() => fileRef.current?.click()}
           disabled={disabled}
           className="flex-shrink-0 p-3 pb-3.5 text-muted-foreground/60 hover:text-foreground
                      transition-colors disabled:opacity-40"
@@ -67,6 +203,14 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
         >
           <Paperclip size={18} />
         </button>
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="image/*,.pdf,.txt,.json,.csv,.zip,.doc,.docx,.xls,.xlsx"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
 
         {/* Textarea */}
         <textarea
@@ -84,7 +228,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                      max-h-[200px] disabled:cursor-not-allowed"
         />
 
-        {/* Right side actions */}
+        {/* Send / Stop */}
         <div className="flex items-center gap-1 p-2">
           {disabled ? (
             <motion.button
@@ -102,10 +246,10 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={handleSubmit}
-              disabled={!input.trim()}
+              disabled={!hasContent || isUploading}
               className={cn(
                 "p-2.5 rounded-xl transition-all duration-300",
-                input.trim()
+                hasContent && !isUploading
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30"
                   : "bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground/40 cursor-not-allowed"
               )}

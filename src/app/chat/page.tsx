@@ -3,34 +3,22 @@
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useChatStore } from "@/lib/store";
-import { fetchChatHistory } from "@/lib/api";
 import Sidebar from "@/components/Sidebar";
 import ChatArea from "@/components/ChatArea";
+import SettingsModal from "@/components/SettingsModal";
 import { Loader2 } from "lucide-react";
 
 export default function ChatPage() {
   const { user, isLoading } = useAuth();
-  const setMessages = useChatStore((s) => s.setMessages);
+  const { currentAgentId, setCurrentAgent } = useChatStore();
 
-  // 加载聊天历史
+  // 初始化：自动选中第一个 agent
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-
-    async function loadHistory() {
-      try {
-        const history = await fetchChatHistory();
-        if (!cancelled && history.length > 0) {
-          setMessages(history);
-        }
-      } catch {
-        // 加载历史失败不阻塞使用
-      }
+    if (!currentAgentId && user.agents && user.agents.length > 0) {
+      setCurrentAgent(user.agents[0].agentId);
     }
-
-    loadHistory();
-    return () => { cancelled = true; };
-  }, [user, setMessages]);
+  }, [user, currentAgentId, setCurrentAgent]);
 
   // Loading state
   if (isLoading || !user) {
@@ -48,6 +36,7 @@ export default function ChatPage() {
     <main className="flex h-screen overflow-hidden">
       <Sidebar />
       <ChatArea />
+      <SettingsModal />
     </main>
   );
 }

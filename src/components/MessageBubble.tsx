@@ -1,8 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Bot, Copy, Check, RefreshCw, AlertCircle, WifiOff } from "lucide-react";
-import { Message } from "@/lib/types";
+import {
+  Bot, Copy, Check, RefreshCw, AlertCircle, WifiOff,
+  FileText, Download, User,
+} from "lucide-react";
+import { Message, Attachment } from "@/lib/types";
 import { cn, formatTime } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { useState, useCallback } from "react";
@@ -10,10 +13,66 @@ import { useState, useCallback } from "react";
 interface MessageBubbleProps {
   message: Message;
   agentName?: string;
+  agentAvatar?: string;
+  userAvatar?: string;
+  userDisplayName?: string;
   onRetry?: (text: string) => void;
 }
 
-export default function MessageBubble({ message, agentName, onRetry }: MessageBubbleProps) {
+// 文件大小格式化
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + "B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + "MB";
+}
+
+// 附件预览组件
+function AttachmentPreview({ attachment }: { attachment: Attachment }) {
+  const isImage = attachment.mimeType.startsWith("image/");
+
+  if (isImage) {
+    return (
+      <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="block">
+        <img
+          src={attachment.previewUrl || attachment.url}
+          alt={attachment.filename}
+          className="max-w-[280px] max-h-[200px] rounded-xl object-cover
+                     border border-white/10 hover:opacity-90 transition-opacity cursor-pointer"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={attachment.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 px-4 py-3 rounded-xl
+                 bg-white/10 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08]
+                 hover:bg-white/20 dark:hover:bg-white/[0.07] transition-all
+                 max-w-[280px]"
+    >
+      <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
+        <FileText size={16} className="text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium truncate">{attachment.filename}</p>
+        <p className="text-[10px] text-muted-foreground/50">{formatSize(attachment.size)}</p>
+      </div>
+      <Download size={14} className="text-muted-foreground/40 flex-shrink-0" />
+    </a>
+  );
+}
+
+export default function MessageBubble({
+  message,
+  agentName,
+  agentAvatar,
+  userAvatar,
+  userDisplayName,
+  onRetry,
+}: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
@@ -42,8 +101,14 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
         <div className="flex-shrink-0 mt-1">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500
                           flex items-center justify-center shadow-lg shadow-indigo-500/25
-                          ring-2 ring-white/10">
-            <Bot size={15} className="text-white" />
+                          ring-2 ring-white/10 overflow-hidden">
+            {agentAvatar && !agentAvatar.startsWith("/") ? (
+              <span className="text-sm">{agentAvatar}</span>
+            ) : agentAvatar ? (
+              <img src={agentAvatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Bot size={15} className="text-white" />
+            )}
           </div>
         </div>
       )}
@@ -56,7 +121,7 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
           isUser ? "justify-end" : "justify-start"
         )}>
           <span className="text-[11px] font-medium text-muted-foreground/60">
-            {isUser ? "You" : (agentName || "AI Agent")}
+            {isUser ? (userDisplayName || "You") : (agentName || "AI Agent")}
           </span>
           <span className="text-[10px] text-muted-foreground/40">
             {formatTime(message.timestamp)}
@@ -65,6 +130,15 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
             <span className="text-[10px] text-primary/80 animate-pulse">typing...</span>
           )}
         </div>
+
+        {/* Attachments (above bubble for user, below for assistant) */}
+        {isUser && message.attachments && message.attachments.length > 0 && (
+          <div className={cn("flex flex-wrap gap-2 mb-2", isUser ? "justify-end" : "justify-start")}>
+            {message.attachments.map((att) => (
+              <AttachmentPreview key={att.id} attachment={att} />
+            ))}
+          </div>
+        )}
 
         {/* Bubble */}
         <div
@@ -103,6 +177,15 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
             </>
           )}
         </div>
+
+        {/* Assistant attachments */}
+        {!isUser && message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {message.attachments.map((att) => (
+              <AttachmentPreview key={att.id} attachment={att} />
+            ))}
+          </div>
+        )}
 
         {/* Error / Interrupted */}
         {(isError || isInterrupted) && (
@@ -149,6 +232,21 @@ export default function MessageBubble({ message, agentName, onRetry }: MessageBu
           </div>
         )}
       </div>
+
+      {/* User avatar (right side) */}
+      {isUser && (
+        <div className="flex-shrink-0 mt-1">
+          <div className="w-8 h-8 rounded-full overflow-hidden
+                          bg-primary/10 flex items-center justify-center
+                          ring-2 ring-primary/20">
+            {userAvatar ? (
+              <img src={userAvatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <User size={14} className="text-primary" />
+            )}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

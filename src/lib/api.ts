@@ -1,6 +1,6 @@
 import type { UserInfo, Message } from "./types";
 
-const BASE = "";  // same-origin, 走 Next.js API 路由代理
+const BASE = "";
 
 // === 通用 fetch 封装 ===
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -11,7 +11,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401 || res.status === 403) {
-    // 鉴权失败，跳转登录
     if (typeof window !== "undefined") {
       window.location.href = "/login";
     }
@@ -26,7 +25,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// === 登录 ===
+// === Auth ===
 export async function login(username: string, password: string): Promise<UserInfo> {
   return apiFetch<UserInfo>("/api/auth/login", {
     method: "POST",
@@ -34,7 +33,6 @@ export async function login(username: string, password: string): Promise<UserInf
   });
 }
 
-// === 登出 ===
 export async function logout(): Promise<void> {
   await fetch(`${BASE}/api/auth/logout`, {
     method: "POST",
@@ -42,12 +40,62 @@ export async function logout(): Promise<void> {
   });
 }
 
-// === 获取当前用户信息 ===
 export async function fetchMe(): Promise<UserInfo> {
   return apiFetch<UserInfo>("/api/me");
 }
 
-// === 获取聊天历史 ===
-export async function fetchChatHistory(): Promise<Message[]> {
-  return apiFetch<Message[]>("/api/chat/history");
+// === Chat History (per agent) ===
+export async function fetchChatHistory(agentId: string): Promise<Message[]> {
+  return apiFetch<Message[]>(`/api/chat/history?agentId=${agentId}`);
+}
+
+export async function saveChatMessages(agentId: string, messages: Message[]): Promise<void> {
+  await apiFetch<void>("/api/chat/history", {
+    method: "POST",
+    body: JSON.stringify({ agentId, messages }),
+  });
+}
+
+// === Profile ===
+export async function updateProfile(data: {
+  displayName?: string;
+  avatar?: string;
+}): Promise<UserInfo> {
+  return apiFetch<UserInfo>("/api/me", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+// === Upload avatar ===
+export async function uploadAvatar(file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/upload/avatar", {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Upload failed");
+  return res.json();
+}
+
+// === Upload file/image for chat ===
+export async function uploadFile(file: File): Promise<{
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  previewUrl?: string;
+}> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/upload/file", {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Upload failed");
+  return res.json();
 }

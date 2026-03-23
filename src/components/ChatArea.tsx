@@ -4,16 +4,18 @@ import { useRef, useEffect, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PanelLeftOpen } from "lucide-react";
 import { useChatStore, useAuthStore } from "@/lib/store";
-import { Message } from "@/lib/types";
+import { Message, Attachment } from "@/lib/types";
 import { generateId } from "@/lib/utils";
 import { streamChat, SSECallbacks } from "@/lib/sse";
+import { fetchChatHistory, saveChatMessages } from "@/lib/api";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import WelcomeScreen from "./WelcomeScreen";
 
 export default function ChatArea() {
   const {
-    messages,
+    currentAgentId,
+    conversationMap,
     isSending,
     sidebarOpen,
     addMessage,
@@ -21,6 +23,7 @@ export default function ChatArea() {
     updateMessageContent,
     setMessageStatus,
     replaceMessageId,
+    setMessages,
     setIsSending,
     toggleSidebar,
   } = useChatStore();
@@ -30,6 +33,11 @@ export default function ChatArea() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
 
+  const messages = currentAgentId ? (conversationMap[currentAgentId] || []) : [];
+
+  // 获取当前 agent 信息
+  const currentAgent = user?.agents?.find((a) => a.agentId === currentAgentId);
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -38,17 +46,59 @@ export default function ChatArea() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // 切换 agent 时加载历史
+  useEffect(() => {
+    if (!currentAgentId) return;
+    // 如果已经有消息就不重新加载
+    if (conversationMap[currentAgentId]?.length) return;
+
+    (async () => {
+      try {
+        const history = await fetchChatHistory(currentAgentId);
+        if (history.length > 0) {
+          setMessages(currentAgentId, history);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [currentAgentId]);
+
+  // 持久化：消息变化时保存
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!currentAgentId || !messages.length) return;
+    // 只保存 done 状态的消息（不保存 streaming 中间态）
+    const hasOngoing = messages.some((m) => m.status === "streaming" || m.status === "sending");
+    if (hasOngoing) return;
+
+    // Debounce save
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveChatMessages(currentAgentId, messages).catch(() => {});
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [currentAgentId, messages]);
+
   const handleSend = useCallback(
-    (text: string) => {
+    (text: string, attachments?: Attachment[]) => {
+      if (!currentAgentId) return;
+
+      // 1. 用户消息
       const userMsg: Message = {
         id: generateId(),
         role: "user",
         content: text,
         status: "done",
         timestamp: Date.now(),
+        attachments,
       };
       addMessage(userMsg);
 
+      // 2. assistant 占位
       const tempAssistantId = generateId();
       const assistantMsg: Message = {
         id: tempAssistantId,
@@ -67,12 +117,10 @@ export default function ChatArea() {
           replaceMessageId(tempAssistantId, data.messageId);
           currentAssistantIdRef.current = data.messageId;
         },
-
         onAssistantDelta: (data) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
           appendMessageContent(id, data.delta);
         },
-
         onAssistantFinal: (data) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
           updateMessageContent(id, data.content);
@@ -80,7 +128,6 @@ export default function ChatArea() {
           setIsSending(false);
           currentAssistantIdRef.current = null;
         },
-
         onError: (data) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
           if (data.code === "AUTH_REQUIRED") {
@@ -91,11 +138,9 @@ export default function ChatArea() {
           setIsSending(false);
           currentAssistantIdRef.current = null;
         },
-
         onDone: () => {
           setIsSending(false);
         },
-
         onConnectionError: (error) => {
           const id = currentAssistantIdRef.current || tempAssistantId;
           setMessageStatus(id, "interrupted", error.message || "Connection lost");
@@ -106,7 +151,7 @@ export default function ChatArea() {
 
       abortControllerRef.current = streamChat(text, callbacks);
     },
-    [addMessage, appendMessageContent, updateMessageContent, setMessageStatus, replaceMessageId, setIsSending]
+    [currentAgentId, addMessage, appendMessageContent, updateMessageContent, setMessageStatus, replaceMessageId, setIsSending]
   );
 
   const handleStop = useCallback(() => {
@@ -126,7 +171,7 @@ export default function ChatArea() {
     (text: string) => {
       const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
       if (lastUserMsg) {
-        handleSend(lastUserMsg.content);
+        handleSend(lastUserMsg.content, lastUserMsg.attachments);
       }
     },
     [messages, handleSend]
@@ -154,13 +199,21 @@ export default function ChatArea() {
           </button>
         )}
         <div className="flex items-center gap-2.5">
-          <div className="w-2 h-2 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
+          {currentAgent && (
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500
+                            flex items-center justify-center">
+              <span className="text-xs">{currentAgent.avatar || "🤖"}</span>
+            </div>
+          )}
           <span className="text-sm font-semibold tracking-tight text-foreground">
-            {user?.agentName || "AI Agent"}
+            {currentAgent?.name || "AI Agent"}
           </span>
-          <span className="text-[10px] text-muted-foreground/40 font-medium">
-            Ready
-          </span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
+            <span className="text-[10px] text-muted-foreground/40 font-medium">
+              Ready
+            </span>
+          </div>
         </div>
       </div>
 
@@ -175,7 +228,10 @@ export default function ChatArea() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
-                  agentName={user?.agentName}
+                  agentName={currentAgent?.name}
+                  agentAvatar={currentAgent?.avatar}
+                  userAvatar={user?.avatar}
+                  userDisplayName={user?.displayName}
                   onRetry={
                     (msg.status === "error" || msg.status === "interrupted")
                       ? handleRetry
@@ -192,7 +248,7 @@ export default function ChatArea() {
       {/* Input area */}
       <ChatInput
         onSend={handleSend}
-        disabled={isSending}
+        disabled={isSending || !currentAgentId}
         onStop={handleStop}
       />
     </div>
