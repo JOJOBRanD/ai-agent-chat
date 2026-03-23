@@ -1,13 +1,14 @@
 "use client";
 
-import Sidebar from "@/components/Sidebar";
-import ChatArea from "@/components/ChatArea";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
-  return (
-    <main className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <ChatArea />
-    </main>
-  );
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/chat");
+  }, [router]);
+
+  return null;
 }

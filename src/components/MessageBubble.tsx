@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Bot, User, Copy, Check, RefreshCw } from "lucide-react";
+import { Bot, User, Copy, Check, RefreshCw, AlertCircle, WifiOff } from "lucide-react";
 import { Message } from "@/lib/types";
 import { cn, formatTime } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -9,12 +9,17 @@ import { useState, useCallback } from "react";
 
 interface MessageBubbleProps {
   message: Message;
-  onRegenerate?: () => void;
+  agentName?: string;
+  onRetry?: (text: string) => void;
 }
 
-export default function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
+export default function MessageBubble({ message, agentName, onRetry }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
+  const isStreaming = message.status === "streaming";
+  const isError = message.status === "error";
+  const isInterrupted = message.status === "interrupted";
+  const isDone = message.status === "done";
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(message.content);
@@ -29,9 +34,7 @@ export default function MessageBubble({ message, onRegenerate }: MessageBubblePr
       transition={{ duration: 0.3, ease: "easeOut" }}
       className={cn(
         "group flex gap-4 px-4 py-5 md:px-8 lg:px-16",
-        isUser
-          ? "bg-transparent"
-          : "bg-muted/30"
+        isUser ? "bg-transparent" : "bg-muted/30"
       )}
     >
       {/* Avatar */}
@@ -54,11 +57,14 @@ export default function MessageBubble({ message, onRegenerate }: MessageBubblePr
         {/* Header */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground">
-            {isUser ? "You" : "AI Agent"}
+            {isUser ? "You" : (agentName || "AI Agent")}
           </span>
           <span className="text-xs text-muted-foreground">
             {formatTime(message.timestamp)}
           </span>
+          {isStreaming && (
+            <span className="text-xs text-primary animate-pulse">generating...</span>
+          )}
         </div>
 
         {/* Message content */}
@@ -66,15 +72,66 @@ export default function MessageBubble({ message, onRegenerate }: MessageBubblePr
           {isUser ? (
             <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
           ) : (
-            <MarkdownRenderer
-              content={message.content}
-              isStreaming={message.isStreaming}
-            />
+            <>
+              {message.content ? (
+                <MarkdownRenderer
+                  content={message.content}
+                  isStreaming={isStreaming}
+                />
+              ) : isStreaming ? (
+                /* 空内容 + streaming = 等待第一个 delta */
+                <div className="flex items-center gap-1.5 py-2">
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={i}
+                      className="w-2 h-2 rounded-full bg-muted-foreground/40"
+                      animate={{ scale: [1, 1.3, 1], opacity: [0.4, 1, 0.4] }}
+                      transition={{
+                        duration: 1,
+                        repeat: Infinity,
+                        delay: i * 0.2,
+                        ease: "easeInOut",
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </>
           )}
         </div>
 
-        {/* Action buttons for assistant messages */}
-        {!isUser && !message.isStreaming && (
+        {/* Error / Interrupted 提示 */}
+        {(isError || isInterrupted) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className={cn(
+              "flex items-center gap-2 mt-2 px-3 py-2 rounded-lg text-xs",
+              isError
+                ? "bg-red-500/10 text-red-500"
+                : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
+            )}
+          >
+            {isError ? <AlertCircle size={14} /> : <WifiOff size={14} />}
+            <span>
+              {isError
+                ? (message.errorMessage || "Something went wrong")
+                : "Connection interrupted"}
+            </span>
+            {onRetry && (
+              <button
+                onClick={() => onRetry(message.content)}
+                className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md
+                           hover:bg-white/10 transition-colors font-medium"
+              >
+                <RefreshCw size={12} /> Retry
+              </button>
+            )}
+          </motion.div>
+        )}
+
+        {/* Action buttons for completed assistant messages */}
+        {!isUser && isDone && message.content && (
           <div className="flex items-center gap-1 pt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <button
               onClick={handleCopy}
@@ -87,52 +144,8 @@ export default function MessageBubble({ message, onRegenerate }: MessageBubblePr
                 <><Copy size={13} /> Copy</>
               )}
             </button>
-            {onRegenerate && (
-              <button
-                onClick={onRegenerate}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground
-                           hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-              >
-                <RefreshCw size={13} /> Regenerate
-              </button>
-            )}
           </div>
         )}
-      </div>
-    </motion.div>
-  );
-}
-
-// Typing indicator component
-export function TypingIndicator() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      className="flex gap-4 px-4 py-5 md:px-8 lg:px-16 bg-muted/30"
-    >
-      <div className="flex-shrink-0 mt-0.5">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center
-                        bg-gradient-to-br from-indigo-500 to-purple-600 text-white
-                        shadow-lg shadow-indigo-500/20">
-          <Bot size={16} />
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 py-2">
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="w-2 h-2 rounded-full bg-muted-foreground/40"
-            animate={{ scale: [1, 1.3, 1], opacity: [0.4, 1, 0.4] }}
-            transition={{
-              duration: 1,
-              repeat: Infinity,
-              delay: i * 0.2,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
       </div>
     </motion.div>
   );

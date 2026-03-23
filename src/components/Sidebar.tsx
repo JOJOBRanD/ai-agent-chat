@@ -2,42 +2,32 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus,
-  MessageSquare,
-  Trash2,
   Settings,
   Sun,
   Moon,
   PanelLeftClose,
-  Search,
   Zap,
+  LogOut,
+  User,
 } from "lucide-react";
-import { useChatStore } from "@/lib/store";
-import { cn, formatTime } from "@/lib/utils";
-import { useState, useMemo } from "react";
+import { useChatStore, useAuthStore } from "@/lib/store";
+import { logout } from "@/lib/api";
+import { useRouter } from "next/navigation";
 
 export default function Sidebar() {
-  const {
-    conversations,
-    activeConversationId,
-    sidebarOpen,
-    theme,
-    createConversation,
-    deleteConversation,
-    setActiveConversation,
-    toggleSidebar,
-    toggleTheme,
-  } = useChatStore();
+  const { sidebarOpen, theme, toggleSidebar, toggleTheme } = useChatStore();
+  const { user, logout: clearAuth } = useAuthStore();
+  const router = useRouter();
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-
-  const filteredConversations = useMemo(() => {
-    if (!searchQuery) return conversations;
-    return conversations.filter((c) =>
-      c.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [conversations, searchQuery]);
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // ignore
+    }
+    clearAuth();
+    router.replace("/login");
+  };
 
   return (
     <AnimatePresence mode="wait">
@@ -57,7 +47,9 @@ export default function Sidebar() {
                                 flex items-center justify-center shadow-md shadow-indigo-500/20">
                   <Zap size={14} className="text-white" />
                 </div>
-                <span className="font-semibold text-sm gradient-text">AI Agent</span>
+                <span className="font-semibold text-sm gradient-text">
+                  {user?.agentName || "AI Agent"}
+                </span>
               </div>
               <button
                 onClick={toggleSidebar}
@@ -69,105 +61,53 @@ export default function Sidebar() {
               </button>
             </div>
 
-            {/* New chat button */}
-            <div className="px-3 py-2">
-              <button
-                onClick={createConversation}
-                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl
-                           border border-dashed border-border
-                           text-sm text-muted-foreground
-                           hover:text-foreground hover:border-primary/40 hover:bg-sidebar-hover
-                           transition-all duration-200"
-              >
-                <Plus size={16} />
-                <span>New Chat</span>
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-3 py-1">
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50"
-                />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search chats..."
-                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-sidebar-hover/50
-                             text-xs text-foreground placeholder:text-muted-foreground/40
-                             border border-transparent focus:border-border
-                             focus:outline-none transition-colors"
-                />
+            {/* Agent info card */}
+            <div className="px-3 py-4">
+              <div className="p-4 rounded-xl bg-sidebar-hover/50 border border-border/50">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600
+                                  flex items-center justify-center shadow-md">
+                    <Zap size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {user?.agentName || "AI Agent"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Online
+                    </p>
+                  </div>
+                  <div className="ml-auto w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Your personal AI assistant. Ask me anything about coding, analysis, or creative tasks.
+                </p>
               </div>
             </div>
 
-            {/* Conversation list */}
-            <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
-              {filteredConversations.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <MessageSquare
-                    size={32}
-                    className="text-muted-foreground/20 mb-3"
-                  />
-                  <p className="text-xs text-muted-foreground/40">
-                    {searchQuery ? "No chats found" : "No conversations yet"}
-                  </p>
-                </div>
-              ) : (
-                filteredConversations.map((conv) => (
-                  <motion.div
-                    key={conv.id}
-                    layout
-                    onMouseEnter={() => setHoveredId(conv.id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                    className={cn(
-                      "relative flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer",
-                      "transition-all duration-150",
-                      activeConversationId === conv.id
-                        ? "bg-primary/10 text-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-hover"
-                    )}
-                    onClick={() => setActiveConversation(conv.id)}
-                  >
-                    <MessageSquare
-                      size={15}
-                      className={cn(
-                        "flex-shrink-0",
-                        activeConversationId === conv.id
-                          ? "text-primary"
-                          : "text-muted-foreground/50"
-                      )}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{conv.title}</p>
-                      <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                        {conv.messages.length} messages · {formatTime(conv.updatedAt)}
-                      </p>
-                    </div>
-                    {hoveredId === conv.id && (
-                      <motion.button
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteConversation(conv.id);
-                        }}
-                        className="flex-shrink-0 p-1 rounded-md text-muted-foreground
-                                   hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </motion.button>
-                    )}
-                  </motion.div>
-                ))
-              )}
-            </div>
+            {/* Spacer */}
+            <div className="flex-1" />
 
-            {/* Footer */}
-            <div className="p-3 border-t border-border">
+            {/* User info + Footer */}
+            <div className="p-3 border-t border-border space-y-2">
+              {/* User info */}
+              {user && (
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <User size={14} className="text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">
+                      {user.displayName}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      @{user.username}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
               <div className="flex items-center justify-between">
                 <button
                   onClick={toggleTheme}
@@ -176,15 +116,25 @@ export default function Sidebar() {
                              hover:bg-sidebar-hover transition-colors"
                 >
                   {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-                  <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                  <span>{theme === "dark" ? "Light" : "Dark"}</span>
                 </button>
-                <button
-                  className="p-2 rounded-lg text-muted-foreground hover:text-foreground
-                             hover:bg-sidebar-hover transition-colors"
-                  aria-label="Settings"
-                >
-                  <Settings size={15} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    className="p-2 rounded-lg text-muted-foreground hover:text-foreground
+                               hover:bg-sidebar-hover transition-colors"
+                    aria-label="Settings"
+                  >
+                    <Settings size={15} />
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-red-500
+                               hover:bg-red-500/10 transition-colors"
+                    aria-label="Logout"
+                  >
+                    <LogOut size={15} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

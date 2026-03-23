@@ -1,37 +1,35 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PanelLeftOpen } from "lucide-react";
-import { useChatStore } from "@/lib/store";
+import { useChatStore, useAuthStore } from "@/lib/store";
 import { Message } from "@/lib/types";
-import { simulateStream, getRandomResponse } from "@/lib/utils";
-import MessageBubble, { TypingIndicator } from "./MessageBubble";
+import { generateId } from "@/lib/utils";
+import { streamChat, SSECallbacks } from "@/lib/sse";
+import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
 import WelcomeScreen from "./WelcomeScreen";
 
-const generateId = () =>
-  Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-
 export default function ChatArea() {
   const {
-    conversations,
-    activeConversationId,
+    messages,
+    isSending,
     sidebarOpen,
-    createConversation,
     addMessage,
-    updateMessage,
-    setMessageStreaming,
+    appendMessageContent,
+    updateMessageContent,
+    setMessageStatus,
+    replaceMessageId,
+    setIsSending,
     toggleSidebar,
   } = useChatStore();
 
-  const [isLoading, setIsLoading] = useState(false);
+  const user = useAuthStore((s) => s.user);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef(false);
-
-  const activeConversation = conversations.find(
-    (c) => c.id === activeConversationId
-  );
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // 跟踪当前流式 assistant 消息的临时 ID
+  const currentAssistantIdRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,75 +37,119 @@ export default function ChatArea() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [activeConversation?.messages, scrollToBottom]);
+  }, [messages, scrollToBottom]);
 
   const handleSend = useCallback(
-    async (content: string) => {
-      abortRef.current = false;
-      let convId = activeConversationId;
-
-      // Create new conversation if needed
-      if (!convId) {
-        convId = createConversation();
-      }
-
-      // Add user message
+    (text: string) => {
+      // 1. 插入用户消息
       const userMsg: Message = {
         id: generateId(),
         role: "user",
-        content,
+        content: text,
+        status: "done",
         timestamp: Date.now(),
       };
-      addMessage(convId, userMsg);
+      addMessage(userMsg);
 
-      // Add assistant placeholder
-      const assistantId = generateId();
+      // 2. 插入 assistant 占位消息
+      const tempAssistantId = generateId();
       const assistantMsg: Message = {
-        id: assistantId,
+        id: tempAssistantId,
         role: "assistant",
         content: "",
+        status: "streaming",
         timestamp: Date.now(),
-        isStreaming: true,
       };
-      addMessage(convId, assistantMsg);
+      addMessage(assistantMsg);
+      currentAssistantIdRef.current = tempAssistantId;
 
-      setIsLoading(true);
+      // 3. 进入发送中状态
+      setIsSending(true);
 
-      // Simulate streaming response
-      const response = getRandomResponse();
-      let accumulated = "";
+      // 4. SSE 回调
+      const callbacks: SSECallbacks = {
+        onAssistantStart: (data) => {
+          // 用后端返回的 messageId 替换临时 ID
+          replaceMessageId(tempAssistantId, data.messageId);
+          currentAssistantIdRef.current = data.messageId;
+        },
 
-      // Small delay before starting to stream
-      await new Promise((r) => setTimeout(r, 600));
+        onAssistantDelta: (data) => {
+          const id = currentAssistantIdRef.current || tempAssistantId;
+          appendMessageContent(id, data.delta);
+        },
 
-      for await (const char of simulateStream(response)) {
-        if (abortRef.current) break;
-        accumulated += char;
-        updateMessage(convId, assistantId, accumulated);
-      }
+        onAssistantFinal: (data) => {
+          const id = currentAssistantIdRef.current || tempAssistantId;
+          // 以 final 全文为准
+          updateMessageContent(id, data.content);
+          setMessageStatus(id, "done");
+          setIsSending(false);
+          currentAssistantIdRef.current = null;
+        },
 
-      setMessageStreaming(convId, assistantId, false);
-      setIsLoading(false);
+        onError: (data) => {
+          const id = currentAssistantIdRef.current || tempAssistantId;
+          // AUTH_REQUIRED 跳登录
+          if (data.code === "AUTH_REQUIRED") {
+            window.location.href = "/login";
+            return;
+          }
+          setMessageStatus(id, "error", data.message);
+          setIsSending(false);
+          currentAssistantIdRef.current = null;
+        },
+
+        onDone: () => {
+          // 流结束（如果 final 已处理，这里只是确认）
+          setIsSending(false);
+        },
+
+        onConnectionError: (error) => {
+          const id = currentAssistantIdRef.current || tempAssistantId;
+          setMessageStatus(id, "interrupted", error.message || "Connection lost");
+          setIsSending(false);
+          currentAssistantIdRef.current = null;
+        },
+      };
+
+      // 5. 发起流式请求
+      abortControllerRef.current = streamChat(text, callbacks);
     },
-    [
-      activeConversationId,
-      createConversation,
-      addMessage,
-      updateMessage,
-      setMessageStreaming,
-    ]
+    [addMessage, appendMessageContent, updateMessageContent, setMessageStatus, replaceMessageId, setIsSending]
+  );
+
+  // 中断流
+  const handleStop = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    const id = currentAssistantIdRef.current;
+    if (id) {
+      setMessageStatus(id, "interrupted");
+      currentAssistantIdRef.current = null;
+    }
+    setIsSending(false);
+  }, [setMessageStatus, setIsSending]);
+
+  // 重试
+  const handleRetry = useCallback(
+    (text: string) => {
+      // 重新发送同样的文本（注意：这里用 user 上一条消息的 text）
+      // 找到最后一条 user 消息
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+      if (lastUserMsg) {
+        handleSend(lastUserMsg.content);
+      }
+    },
+    [messages, handleSend]
   );
 
   const handleSuggestionClick = useCallback(
-    (text: string) => {
-      handleSend(text);
-    },
+    (text: string) => handleSend(text),
     [handleSend]
   );
-
-  const handleStop = useCallback(() => {
-    abortRef.current = true;
-  }, []);
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0">
@@ -126,25 +168,29 @@ export default function ChatArea() {
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
           <span className="text-sm font-medium">
-            {activeConversation?.title || "AI Agent"}
-          </span>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground/50 px-2 py-1 rounded-md bg-muted/50">
-            GPT-4 Turbo
+            {user?.agentName || "AI Agent"}
           </span>
         </div>
       </div>
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto">
-        {!activeConversation || activeConversation.messages.length === 0 ? (
+        {messages.length === 0 ? (
           <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
         ) : (
           <div className="pb-4">
             <AnimatePresence mode="popLayout">
-              {activeConversation.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+              {messages.map((msg) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  agentName={user?.agentName}
+                  onRetry={
+                    (msg.status === "error" || msg.status === "interrupted")
+                      ? handleRetry
+                      : undefined
+                  }
+                />
               ))}
             </AnimatePresence>
             <div ref={messagesEndRef} />
@@ -155,7 +201,7 @@ export default function ChatArea() {
       {/* Input area */}
       <ChatInput
         onSend={handleSend}
-        isLoading={isLoading}
+        disabled={isSending}
         onStop={handleStop}
       />
     </div>

@@ -2,16 +2,16 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Send, Paperclip, Mic, Square, Sparkles } from "lucide-react";
+import { Send, Paperclip, Square, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
-  isLoading: boolean;
-  onStop?: () => void;
+  disabled: boolean;      // 发送中禁用
+  onStop?: () => void;    // 中断流
 }
 
-export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -26,14 +26,15 @@ export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps)
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || disabled) return;
     onSend(trimmed);
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, isLoading, onSend]);
+  }, [input, disabled, onSend]);
 
+  // Enter 发送, Shift+Enter 换行
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -50,6 +51,7 @@ export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps)
         className={cn(
           "relative flex items-end gap-2 rounded-2xl border transition-all duration-300",
           "bg-card shadow-lg",
+          disabled && "opacity-80",
           isFocused
             ? "border-primary/50 glow-primary"
             : "border-border hover:border-muted-foreground/30"
@@ -57,8 +59,9 @@ export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps)
       >
         {/* Attachment button */}
         <button
+          disabled={disabled}
           className="flex-shrink-0 p-3 pb-3.5 text-muted-foreground hover:text-foreground
-                     transition-colors"
+                     transition-colors disabled:opacity-40"
           aria-label="Attach file"
         >
           <Paperclip size={18} />
@@ -72,16 +75,17 @@ export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps)
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder="Message AI Agent..."
+          disabled={disabled}
+          placeholder={disabled ? "Waiting for response..." : "Message AI Agent..."}
           rows={1}
           className="flex-1 bg-transparent py-3.5 text-sm leading-relaxed
                      placeholder:text-muted-foreground/50 focus:outline-none
-                     max-h-[200px]"
+                     max-h-[200px] disabled:cursor-not-allowed"
         />
 
         {/* Right side actions */}
         <div className="flex items-center gap-1 p-2">
-          {isLoading ? (
+          {disabled ? (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -93,30 +97,21 @@ export default function ChatInput({ onSend, isLoading, onStop }: ChatInputProps)
               <Square size={16} fill="currentColor" />
             </motion.button>
           ) : (
-            <>
-              <button
-                className="p-2 text-muted-foreground hover:text-foreground
-                           transition-colors rounded-lg"
-                aria-label="Voice input"
-              >
-                <Mic size={18} />
-              </button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleSubmit}
-                disabled={!input.trim()}
-                className={cn(
-                  "p-2 rounded-xl transition-all duration-200",
-                  input.trim()
-                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/30"
-                    : "bg-muted text-muted-foreground cursor-not-allowed"
-                )}
-                aria-label="Send message"
-              >
-                <Send size={16} />
-              </motion.button>
-            </>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSubmit}
+              disabled={!input.trim()}
+              className={cn(
+                "p-2 rounded-xl transition-all duration-200",
+                input.trim()
+                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/30"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
+              )}
+              aria-label="Send message"
+            >
+              <Send size={16} />
+            </motion.button>
           )}
         </div>
       </motion.div>

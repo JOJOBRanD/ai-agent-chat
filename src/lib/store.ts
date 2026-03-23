@@ -1,121 +1,99 @@
 import { create } from "zustand";
-import { Conversation, Message } from "./types";
+import { Message, MessageStatus, UserInfo } from "./types";
 
+// === Auth Store ===
+interface AuthState {
+  user: UserInfo | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+
+  setUser: (user: UserInfo | null) => void;
+  setLoading: (loading: boolean) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  isAuthenticated: false,
+  isLoading: true, // 初始加载态
+
+  setUser: (user) => set({ user, isAuthenticated: !!user, isLoading: false }),
+  setLoading: (isLoading) => set({ isLoading }),
+  logout: () => set({ user: null, isAuthenticated: false, isLoading: false }),
+}));
+
+// === Chat Store（单通道） ===
 interface ChatState {
-  conversations: Conversation[];
-  activeConversationId: string | null;
+  messages: Message[];
+  isSending: boolean;       // 发送中（禁用输入）
   sidebarOpen: boolean;
   theme: "light" | "dark";
 
-  // Actions
-  createConversation: () => string;
-  deleteConversation: (id: string) => void;
-  setActiveConversation: (id: string) => void;
-  addMessage: (conversationId: string, message: Message) => void;
-  updateMessage: (conversationId: string, messageId: string, content: string) => void;
-  setMessageStreaming: (conversationId: string, messageId: string, isStreaming: boolean) => void;
+  // Message actions
+  addMessage: (message: Message) => void;
+  updateMessageContent: (messageId: string, content: string) => void;
+  appendMessageContent: (messageId: string, delta: string) => void;
+  setMessageStatus: (messageId: string, status: MessageStatus, errorMessage?: string) => void;
+  replaceMessageId: (tempId: string, realId: string) => void;
+  setMessages: (messages: Message[]) => void;
+
+  // UI actions
+  setIsSending: (sending: boolean) => void;
   toggleSidebar: () => void;
   toggleTheme: () => void;
   setTheme: (theme: "light" | "dark") => void;
 }
 
-const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-
-export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: [],
-  activeConversationId: null,
+export const useChatStore = create<ChatState>((set) => ({
+  messages: [],
+  isSending: false,
   sidebarOpen: true,
   theme: "dark",
 
-  createConversation: () => {
-    const id = generateId();
-    const conversation: Conversation = {
-      id,
-      title: "New Chat",
-      messages: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+  addMessage: (message) => {
+    set((state) => ({ messages: [...state.messages, message] }));
+  },
+
+  updateMessageContent: (messageId, content) => {
     set((state) => ({
-      conversations: [conversation, ...state.conversations],
-      activeConversationId: id,
-    }));
-    return id;
-  },
-
-  deleteConversation: (id) => {
-    set((state) => {
-      const filtered = state.conversations.filter((c) => c.id !== id);
-      return {
-        conversations: filtered,
-        activeConversationId:
-          state.activeConversationId === id
-            ? filtered[0]?.id || null
-            : state.activeConversationId,
-      };
-    });
-  },
-
-  setActiveConversation: (id) => {
-    set({ activeConversationId: id });
-  },
-
-  addMessage: (conversationId, message) => {
-    set((state) => ({
-      conversations: state.conversations.map((c) => {
-        if (c.id !== conversationId) return c;
-        const messages = [...c.messages, message];
-        // Auto-set conversation title from first user message
-        const title =
-          c.messages.length === 0 && message.role === "user"
-            ? message.content.slice(0, 40) + (message.content.length > 40 ? "..." : "")
-            : c.title;
-        return { ...c, messages, title, updatedAt: Date.now() };
-      }),
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, content } : m
+      ),
     }));
   },
 
-  updateMessage: (conversationId, messageId, content) => {
+  appendMessageContent: (messageId, delta) => {
     set((state) => ({
-      conversations: state.conversations.map((c) => {
-        if (c.id !== conversationId) return c;
-        return {
-          ...c,
-          messages: c.messages.map((m) =>
-            m.id === messageId ? { ...m, content } : m
-          ),
-          updatedAt: Date.now(),
-        };
-      }),
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, content: m.content + delta } : m
+      ),
     }));
   },
 
-  setMessageStreaming: (conversationId, messageId, isStreaming) => {
+  setMessageStatus: (messageId, status, errorMessage) => {
     set((state) => ({
-      conversations: state.conversations.map((c) => {
-        if (c.id !== conversationId) return c;
-        return {
-          ...c,
-          messages: c.messages.map((m) =>
-            m.id === messageId ? { ...m, isStreaming } : m
-          ),
-        };
-      }),
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, status, errorMessage } : m
+      ),
     }));
   },
 
-  toggleSidebar: () => {
-    set((state) => ({ sidebarOpen: !state.sidebarOpen }));
+  replaceMessageId: (tempId, realId) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === tempId ? { ...m, id: realId } : m
+      ),
+    }));
   },
 
-  toggleTheme: () => {
-    set((state) => {
-      const newTheme = state.theme === "dark" ? "light" : "dark";
-      return { theme: newTheme };
-    });
-  },
+  setMessages: (messages) => set({ messages }),
 
-  setTheme: (theme) => {
-    set({ theme });
-  },
+  setIsSending: (isSending) => set({ isSending }),
+
+  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+  toggleTheme: () =>
+    set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+
+  setTheme: (theme) => set({ theme }),
 }));
