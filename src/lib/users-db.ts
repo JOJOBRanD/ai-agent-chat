@@ -1,7 +1,7 @@
 /**
  * 用户数据库（JSON 文件持久化）
- * 用户数据保存在项目根目录 data/users.json
- * Session 仍然保存在内存中（重启后需要重新登录）
+ * 用户数据保存在 data/users.json
+ * Session 保存在 data/sessions.json（服务重启不丢失登录状态）
  */
 
 import fs from "fs";
@@ -21,6 +21,7 @@ export interface UserRecord {
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 
 // 预置管理员
 const DEFAULT_ADMIN: UserRecord = {
@@ -39,10 +40,11 @@ function ensureDataDir(): void {
   }
 }
 
+// --- Users ---
+
 function loadUsers(): UserRecord[] {
   ensureDataDir();
   if (!fs.existsSync(USERS_FILE)) {
-    // 首次运行，写入默认管理员
     const initial = [DEFAULT_ADMIN];
     fs.writeFileSync(USERS_FILE, JSON.stringify(initial, null, 2), "utf-8");
     return initial;
@@ -50,7 +52,6 @@ function loadUsers(): UserRecord[] {
   try {
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     const data = JSON.parse(raw) as UserRecord[];
-    // 确保管理员始终存在
     if (!data.find((u) => u.userId === "admin_001")) {
       data.unshift(DEFAULT_ADMIN);
       saveUsers(data);
@@ -68,15 +69,32 @@ function saveUsers(users: UserRecord[]): void {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
 }
 
-// Session -> username 映射（内存，重启后需重新登录）
-const sessions = new Map<string, string>();
+// --- Sessions (也持久化到文件) ---
 
-let nextUserId = 0;
+function loadSessions(): Record<string, string> {
+  ensureDataDir();
+  if (!fs.existsSync(SESSIONS_FILE)) {
+    fs.writeFileSync(SESSIONS_FILE, "{}", "utf-8");
+    return {};
+  }
+  try {
+    const raw = fs.readFileSync(SESSIONS_FILE, "utf-8");
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    fs.writeFileSync(SESSIONS_FILE, "{}", "utf-8");
+    return {};
+  }
+}
 
-// 初始化 nextUserId
+function saveSessions(sessions: Record<string, string>): void {
+  ensureDataDir();
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2), "utf-8");
+}
+
+// --- Next user ID ---
+
 function getNextUserId(): string {
   const users = loadUsers();
-  // 找到当前最大的 user_xxx 编号
   let max = 0;
   for (const u of users) {
     const match = u.userId.match(/^user_(\d+)$/);
@@ -85,8 +103,7 @@ function getNextUserId(): string {
       if (num > max) max = num;
     }
   }
-  nextUserId = max + 1;
-  return `user_${String(nextUserId).padStart(3, "0")}`;
+  return `user_${String(max + 1).padStart(3, "0")}`;
 }
 
 // === CRUD ===
@@ -109,18 +126,23 @@ export function authenticateUser(username: string, password: string): UserRecord
 
 export function createSession(username: string): string {
   const token = "sess_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
-  sessions.set(token, username);
+  const sessions = loadSessions();
+  sessions[token] = username;
+  saveSessions(sessions);
   return token;
 }
 
 export function getUserBySession(token: string): UserRecord | undefined {
-  const username = sessions.get(token);
+  const sessions = loadSessions();
+  const username = sessions[token];
   if (!username) return undefined;
   return findUserByUsername(username);
 }
 
 export function deleteSession(token: string): void {
-  sessions.delete(token);
+  const sessions = loadSessions();
+  delete sessions[token];
+  saveSessions(sessions);
 }
 
 export function getAllUsers(): UserRecord[] {
