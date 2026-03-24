@@ -149,7 +149,7 @@ export default function ChatArea() {
         },
       };
 
-      abortControllerRef.current = streamChat(text, callbacks);
+      abortControllerRef.current = streamChat(text, callbacks, currentAgentId || undefined);
     },
     [currentAgentId, addMessage, appendMessageContent, updateMessageContent, setMessageStatus, replaceMessageId, setIsSending]
   );

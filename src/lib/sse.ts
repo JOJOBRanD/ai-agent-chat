@@ -57,7 +57,8 @@ function parseSSELines(raw: string): Array<{ event: string; data: string }> {
  */
 export function streamChat(
   text: string,
-  callbacks: SSECallbacks
+  callbacks: SSECallbacks,
+  agentId?: string
 ): AbortController {
   const controller = new AbortController();
 
@@ -66,9 +67,9 @@ export function streamChat(
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, agentId }),
         signal: controller.signal,
-        credentials: "include", // 携带 cookie
+        credentials: "include",
       });
 
       // 鉴权失败
