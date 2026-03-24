@@ -1,41 +1,25 @@
 import { NextRequest } from "next/server";
+import { getUserBySession } from "@/lib/users-db";
+import { buildSessionKey, getOpenClawConfig } from "@/lib/openclaw";
 
-// Mock streaming response — 模拟后端 SSE 输出
-// 后续对接 OpenClaw / OpenAI 时替换此路由
+function encodeEvent(encoder: TextEncoder, event: string, data: unknown) {
+  return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
 
-const MOCK_RESPONSE = `## Analysis Complete
-
-Here's what I found:
-
-### Key Insights
-
-1. **Performance Optimization** — The current architecture shows room for improvement.
-
-2. **Code Quality** — Overall the codebase follows good practices.
-
-\`\`\`typescript
-// Example optimization
-const memoized = useMemo(() => {
-  return expensiveComputation(data);
-}, [data]);
-\`\`\`
-
-> **Note:** These are based on static analysis.
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Load Time | 3.2s | 1.1s |
-| Bundle Size | 420KB | 180KB |
-
-Would you like me to dive deeper?`;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function parseSSEBlocks(raw: string): string[] {
+  const blocks = raw.split("\n\n");
+  const datas: string[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    for (const line of lines) {
+      if (line.startsWith("data: ")) datas.push(line.slice(6));
+    }
+  }
+  return datas;
 }
 
 export async function POST(req: NextRequest) {
   const session = req.cookies.get("session")?.value;
-
   if (!session) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
@@ -43,7 +27,15 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { text } = await req.json();
+  const user = getUserBySession(session);
+  if (!user) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { text, agentId } = await req.json();
   if (!text) {
     return new Response(JSON.stringify({ error: "text is required" }), {
       status: 400,
@@ -51,59 +43,122 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const messageId = "a_" + Math.random().toString(36).substring(2, 12);
+  const resolvedAgentId: string | undefined =
+    (typeof agentId === "string" && agentId) || user.agents?.[0]?.agentId;
+
+  if (!resolvedAgentId) {
+    return new Response(JSON.stringify({ error: "No agent assigned" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!user.agents?.some((a) => a.agentId === resolvedAgentId)) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { baseUrl, token, defaultAgentId } = getOpenClawConfig();
+  if (!token) {
+    return new Response(JSON.stringify({ error: "OpenClaw not configured" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Note: resolvedAgentId is the OpenClaw agentId. defaultAgentId is only a fallback.
+  const ocAgentId = resolvedAgentId || defaultAgentId;
+  const sessionKey = buildSessionKey(user.userId, ocAgentId);
+
+  const messageId = `a_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      // assistant_start
-      controller.enqueue(
-        encoder.encode(
-          `event: assistant_start\ndata: ${JSON.stringify({
-            messageId,
-            createdAt: Date.now(),
-          })}\n\n`
-        )
-      );
-
-      await sleep(300);
-
-      // assistant_delta — 逐字输出
-      const chars = MOCK_RESPONSE.split("");
       let accumulated = "";
-      for (const char of chars) {
-        accumulated += char;
+
+      controller.enqueue(
+        encodeEvent(encoder, "assistant_start", {
+          messageId,
+          createdAt: Date.now(),
+        })
+      );
+
+      try {
+        const upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-clawdbot-agent-id": ocAgentId,
+            "x-clawdbot-session-key": sessionKey,
+          },
+          body: JSON.stringify({
+            model: `clawdbot:${ocAgentId}`,
+            stream: true,
+            user: user.userId,
+            messages: [{ role: "user", content: text }],
+          }),
+        });
+
+        if (!upstream.ok || !upstream.body) {
+          controller.enqueue(
+            encodeEvent(encoder, "error", {
+              message: `Upstream error: ${upstream.status}`,
+              code: "UPSTREAM_ERROR",
+            })
+          );
+          controller.enqueue(encodeEvent(encoder, "done", { ok: false }));
+          controller.close();
+          return;
+        }
+
+        const reader = upstream.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lastDoubleNewline = buffer.lastIndexOf("\n\n");
+          if (lastDoubleNewline === -1) continue;
+
+          const complete = buffer.slice(0, lastDoubleNewline + 2);
+          buffer = buffer.slice(lastDoubleNewline + 2);
+
+          const datas = parseSSEBlocks(complete);
+          for (const dataLine of datas) {
+            if (dataLine === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(dataLine);
+              const delta = parsed?.choices?.[0]?.delta?.content;
+              if (typeof delta === "string" && delta.length > 0) {
+                accumulated += delta;
+                controller.enqueue(encodeEvent(encoder, "assistant_delta", { messageId, delta }));
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+
+        controller.enqueue(encodeEvent(encoder, "assistant_final", { messageId, content: accumulated }));
+        controller.enqueue(encodeEvent(encoder, "done", { ok: true }));
+        controller.close();
+      } catch (e: any) {
         controller.enqueue(
-          encoder.encode(
-            `event: assistant_delta\ndata: ${JSON.stringify({
-              messageId,
-              delta: char,
-            })}\n\n`
-          )
+          encodeEvent(encoder, "error", {
+            message: e?.message || "Connection failed",
+            code: "CONNECTION_FAILED",
+          })
         );
-        // 模拟打字速度
-        await sleep(8 + Math.random() * 15);
+        controller.enqueue(encodeEvent(encoder, "done", { ok: false }));
+        controller.close();
       }
-
-      // assistant_final
-      controller.enqueue(
-        encoder.encode(
-          `event: assistant_final\ndata: ${JSON.stringify({
-            messageId,
-            content: accumulated,
-            usage: { prompt_tokens: 50, completion_tokens: accumulated.length },
-          })}\n\n`
-        )
-      );
-
-      // done
-      controller.enqueue(
-        encoder.encode(
-          `event: done\ndata: ${JSON.stringify({ ok: true })}\n\n`
-        )
-      );
-
-      controller.close();
     },
   });
 

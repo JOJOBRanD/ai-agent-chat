@@ -31,7 +31,7 @@ const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 
 // 默认 Agent
 const DEFAULT_AGENT: AgentInfo = {
-  agentId: "agent_default",
+  agentId: "main",
   name: "AI Agent",
   description: "General purpose AI assistant",
   avatar: "🤖",
