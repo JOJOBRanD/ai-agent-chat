@@ -14,7 +14,7 @@ function formatUser(user: NonNullable<ReturnType<typeof getUser>>) {
     displayName: user.displayName,
     avatar: user.avatar ? `/api/upload/avatar/${user.avatar}` : undefined,
     role: user.role,
-    agents: user.agents || [],
+    agents: (user.agents || []).map(({ gateway, token, ...a }) => a),
   };
 }
 

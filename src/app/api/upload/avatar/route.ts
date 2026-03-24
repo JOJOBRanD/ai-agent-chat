@@ -34,8 +34,11 @@ export async function POST(req: NextRequest) {
 
   const url = `/api/upload/avatar/${filename}`;
 
-  // 更新用户头像
-  updateUser(user.userId, { avatar: filename });
+  // Only update user avatar if not an agent avatar upload
+  const isAgentAvatar = formData.get("agentAvatar") === "true";
+  if (!isAgentAvatar) {
+    updateUser(user.userId, { avatar: filename });
+  }
 
   return NextResponse.json({ url });
 }

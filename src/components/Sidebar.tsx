@@ -57,8 +57,8 @@ export default function Sidebar() {
           animate={{ width: 280, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-          className="flex-shrink-0 h-full border-r border-black/[0.06] dark:border-white/[0.06]
-                     bg-white/40 dark:bg-white/[0.02] backdrop-blur-2xl overflow-hidden"
+          className="flex-shrink-0 h-full border-r border-white/[0.15] dark:border-white/[0.06]
+                     bg-white/30 dark:bg-white/[0.03] backdrop-blur-xl backdrop-saturate-150 overflow-hidden"
         >
           <div className="flex flex-col h-full w-[280px]">
             {/* Header */}
@@ -84,34 +84,35 @@ export default function Sidebar() {
                 const gradient = AGENT_COLORS[agent.color || "indigo"] || AGENT_COLORS.indigo;
 
                 return (
-                  <motion.button
+                  <button
                     key={agent.agentId}
-                    whileTap={{ scale: 0.98 }}
                     onClick={() => setCurrentAgent(agent.agentId)}
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left",
-                      "transition-all duration-200",
+                      "transition-all duration-200 border",
                       isActive
-                        ? "bg-white/70 dark:bg-white/[0.08] shadow-sm border border-black/[0.04] dark:border-white/[0.06]"
-                        : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                        ? "bg-white/70 dark:bg-white/[0.08] shadow-sm border-black/[0.04] dark:border-white/[0.06]"
+                        : "border-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
                     )}
                   >
                     {/* Agent avatar */}
                     <div className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
-                      "bg-gradient-to-br shadow-lg",
+                      "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden",
+                      "bg-gradient-to-br transition-all duration-200",
                       gradient,
                       isActive ? "shadow-md" : "shadow-sm opacity-80"
                     )}>
-                      <span className="text-lg">
-                        {agent.avatar || "🤖"}
-                      </span>
+                      {agent.avatar && (agent.avatar.startsWith("/") || agent.avatar.startsWith("http")) ? (
+                        <img src={agent.avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-lg">{agent.avatar || "🤖"}</span>
+                      )}
                     </div>
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <p className={cn(
-                        "text-sm font-medium truncate tracking-tight",
+                        "text-sm font-medium truncate tracking-tight transition-colors duration-200",
                         isActive ? "text-foreground" : "text-foreground/70"
                       )}>
                         {agent.name}
@@ -123,11 +124,12 @@ export default function Sidebar() {
                       )}
                     </div>
 
-                    {/* Active indicator */}
-                    {isActive && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50 flex-shrink-0" />
-                    )}
-                  </motion.button>
+                    {/* Active indicator — always rendered, visibility controlled by opacity */}
+                    <div className={cn(
+                      "w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0 transition-opacity duration-200",
+                      isActive ? "opacity-100 shadow-sm shadow-green-500/50" : "opacity-0"
+                    )} />
+                  </button>
                 );
               })}
 

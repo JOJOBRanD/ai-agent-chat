@@ -177,17 +177,12 @@ export default function ChatArea() {
     [messages, handleSend]
   );
 
-  const handleSuggestionClick = useCallback(
-    (text: string) => handleSend(text),
-    [handleSend]
-  );
-
   return (
     <div className="flex-1 flex flex-col h-full min-w-0">
       {/* Glass top bar */}
       <div className="flex items-center gap-3 px-5 py-3
                       border-b border-black/[0.04] dark:border-white/[0.06]
-                      bg-white/60 dark:bg-black/40 backdrop-blur-2xl">
+                      bg-white/30 dark:bg-white/[0.03] backdrop-blur-xl backdrop-saturate-150">
         {!sidebarOpen && (
           <button
             onClick={toggleSidebar}
@@ -201,8 +196,12 @@ export default function ChatArea() {
         <div className="flex items-center gap-2.5">
           {currentAgent && (
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500
-                            flex items-center justify-center">
-              <span className="text-xs">{currentAgent.avatar || "🤖"}</span>
+                            flex items-center justify-center overflow-hidden">
+              {currentAgent.avatar && (currentAgent.avatar.startsWith("/") || currentAgent.avatar.startsWith("http")) ? (
+                <img src={currentAgent.avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs">{currentAgent.avatar || "🤖"}</span>
+              )}
             </div>
           )}
           <span className="text-sm font-semibold tracking-tight text-foreground">
@@ -220,7 +219,7 @@ export default function ChatArea() {
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
+          <WelcomeScreen />
         ) : (
           <div className="pb-4 pt-2">
             <AnimatePresence mode="popLayout">

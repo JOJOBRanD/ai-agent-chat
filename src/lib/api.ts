@@ -80,6 +80,57 @@ export async function uploadAvatar(file: File): Promise<{ url: string }> {
   return res.json();
 }
 
+// === Upload agent avatar (no user avatar side effect) ===
+export async function uploadAgentAvatar(file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("agentAvatar", "true");
+  const res = await fetch("/api/upload/avatar", {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Upload failed");
+  return res.json();
+}
+
+// === Admin: Agent pool CRUD (does NOT redirect on auth failure) ===
+export async function fetchAgentPool(): Promise<import("./types").AgentInfo[]> {
+  const res = await fetch("/api/admin/agents", { credentials: "include" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch agents: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+export async function upsertAgentPool(agent: import("./types").AgentInfo): Promise<import("./types").AgentInfo> {
+  const res = await fetch("/api/admin/agents", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(agent),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(data.error || `Failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteAgentPool(agentId: string): Promise<void> {
+  const res = await fetch("/api/admin/agents", {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agentId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(data.error || `Failed: ${res.status}`);
+  }
+}
+
 // === Upload file/image for chat ===
 export async function uploadFile(file: File): Promise<{
   id: string;

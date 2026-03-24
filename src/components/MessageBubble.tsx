@@ -145,7 +145,7 @@ export default function MessageBubble({
           className={cn(
             "rounded-2xl px-4 py-3 transition-all duration-300",
             isUser
-              ? "bg-primary text-primary-foreground rounded-br-md shadow-lg shadow-primary/20"
+              ? "user-bubble-glass text-white rounded-br-md shadow-lg shadow-primary/25"
               : "message-glass rounded-bl-md shadow-lg"
           )}
         >

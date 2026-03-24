@@ -263,11 +263,11 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
       <motion.div
         className={cn(
           "relative flex items-end gap-2 rounded-2xl border transition-all duration-300",
-          "bg-white/60 dark:bg-white/[0.06] backdrop-blur-2xl",
+          "bg-white/30 dark:bg-white/[0.05] backdrop-blur-xl backdrop-saturate-150",
           "shadow-[0_2px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_20px_rgba(0,0,0,0.3)]",
           disabled && "opacity-80",
           isFocused
-            ? "border-primary/40 shadow-[0_0_0_3px_rgba(0,113,227,0.08),0_2px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_3px_rgba(41,151,255,0.12),0_2px_20px_rgba(0,0,0,0.3)]"
+            ? "border-primary/40 shadow-[0_0_0_3px_rgba(99,102,241,0.1),0_2px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_3px_rgba(129,140,248,0.15),0_2px_20px_rgba(0,0,0,0.3)]"
             : "border-black/[0.06] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
         )}
       >

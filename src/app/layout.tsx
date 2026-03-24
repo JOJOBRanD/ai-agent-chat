@@ -4,6 +4,7 @@ import "./globals.css";
 import "highlight.js/styles/github-dark-dimmed.css";
 import { useChatStore } from "@/lib/store";
 import { useEffect } from "react";
+import AnimatedBackground from "@/components/AnimatedBackground";
 
 export default function RootLayout({
   children,
@@ -23,6 +24,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className="bg-background text-foreground antialiased">
+        <AnimatedBackground />
         {children}
       </body>
     </html>

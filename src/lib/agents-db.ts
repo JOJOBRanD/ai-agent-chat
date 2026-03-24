@@ -28,15 +28,21 @@ function loadAgents(): AgentInfo[] {
   ensureDataDir();
   if (!fs.existsSync(AGENTS_FILE)) {
     fs.writeFileSync(AGENTS_FILE, JSON.stringify(DEFAULT_AGENTS, null, 2), "utf-8");
-    return DEFAULT_AGENTS;
+    return structuredClone(DEFAULT_AGENTS);
   }
   try {
     const raw = fs.readFileSync(AGENTS_FILE, "utf-8");
-    const data = JSON.parse(raw) as AgentInfo[];
-    return Array.isArray(data) ? data : DEFAULT_AGENTS;
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) {
+      // File exists but is invalid — rewrite with defaults
+      fs.writeFileSync(AGENTS_FILE, JSON.stringify(DEFAULT_AGENTS, null, 2), "utf-8");
+      return structuredClone(DEFAULT_AGENTS);
+    }
+    // Allow empty array (user deleted all agents)
+    return data as AgentInfo[];
   } catch {
     fs.writeFileSync(AGENTS_FILE, JSON.stringify(DEFAULT_AGENTS, null, 2), "utf-8");
-    return DEFAULT_AGENTS;
+    return structuredClone(DEFAULT_AGENTS);
   }
 }
 

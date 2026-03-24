@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getUserBySession } from "@/lib/users-db";
+import { findAgentInPool } from "@/lib/agents-db";
 import { buildSessionKey, getOpenClawConfig } from "@/lib/openclaw";
 
 function encodeEvent(encoder: TextEncoder, event: string, data: unknown) {
@@ -60,16 +61,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { baseUrl, token, defaultAgentId } = getOpenClawConfig();
-  if (!token) {
-    return new Response(JSON.stringify({ error: "OpenClaw not configured" }), {
+  // Look up per-agent gateway/token from agent pool, fallback to global OpenClaw config
+  const poolAgent = findAgentInPool(resolvedAgentId);
+  const globalConfig = getOpenClawConfig();
+
+  const agentGateway = (poolAgent?.gateway || globalConfig.baseUrl).replace(/\/$/, "");
+  const agentToken = poolAgent?.token || globalConfig.token;
+
+  if (!agentToken) {
+    return new Response(JSON.stringify({ error: "Agent gateway not configured (no token)" }), {
       status: 503,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  // Note: resolvedAgentId is the OpenClaw agentId. defaultAgentId is only a fallback.
-  const ocAgentId = resolvedAgentId || defaultAgentId;
+  const ocAgentId = resolvedAgentId || globalConfig.defaultAgentId;
   const sessionKey = buildSessionKey(user.userId, ocAgentId);
 
   const messageId = `a_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -87,10 +93,10 @@ export async function POST(req: NextRequest) {
       );
 
       try {
-        const upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
+        const upstream = await fetch(`${agentGateway}/v1/chat/completions`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${agentToken}`,
             "Content-Type": "application/json",
             "x-clawdbot-agent-id": ocAgentId,
             "x-clawdbot-session-key": sessionKey,

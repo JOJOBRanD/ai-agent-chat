@@ -32,6 +32,8 @@ export interface AgentInfo {
   description?: string;
   avatar?: string;    // emoji or url
   color?: string;     // gradient color key
+  gateway?: string;   // 网关地址
+  token?: string;     // 鉴权 token
 }
 
 // === 用户信息（GET /api/me 返回） ===
