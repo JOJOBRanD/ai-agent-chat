@@ -62,7 +62,7 @@ export default function ChatArea() {
         // ignore
       }
     })();
-  }, [currentAgentId]);
+  }, [currentAgentId, conversationMap, setMessages]);
 
   // 持久化：消息变化时保存
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
