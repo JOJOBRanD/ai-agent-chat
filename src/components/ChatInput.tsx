@@ -24,9 +24,12 @@ interface PendingFile {
 export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const dragCounterRef = useRef(0);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -36,8 +39,8 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   }, [input]);
 
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  // 通用：处理一组 File 对象（上传 + 预览）
+  const processFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
 
     const newPending: PendingFile[] = files.map((file) => ({
@@ -48,7 +51,6 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
 
     setPendingFiles((prev) => [...prev, ...newPending]);
 
-    // Upload each file
     for (let i = 0; i < files.length; i++) {
       try {
         const result = await uploadFile(files[i]);
@@ -65,10 +67,66 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
         );
       }
     }
-
-    // Clear file input
-    if (fileRef.current) fileRef.current.value = "";
   }, []);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    await processFiles(files);
+    if (fileRef.current) fileRef.current.value = "";
+  }, [processFiles]);
+
+  // === Drag & Drop ===
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    await processFiles(files);
+  }, [processFiles]);
+
+  // === Paste images ===
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageFiles: File[] = [];
+
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault(); // 阻止粘贴图片的默认行为
+      await processFiles(imageFiles);
+    }
+    // 如果不是图片，正常粘贴文本
+  }, [processFiles]);
 
   const removeFile = useCallback((file: File) => {
     setPendingFiles((prev) => {
@@ -109,7 +167,27 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
   const isUploading = pendingFiles.some((pf) => pf.uploading);
 
   return (
-    <div className="relative px-4 pb-5 pt-2 md:px-8 lg:px-16">
+    <div
+      ref={dropRef}
+      className="relative px-4 pb-5 pt-2 md:px-8 lg:px-16"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-20 rounded-2xl mx-4 md:mx-8 lg:mx-16
+                        border-2 border-dashed border-primary/50
+                        bg-primary/5 dark:bg-primary/10 backdrop-blur-sm
+                        flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-2">
+            <Paperclip size={28} className="text-primary/70" />
+            <span className="text-sm font-medium text-primary/70">Drop files here</span>
+          </div>
+        </div>
+      )}
+
       {/* File preview area */}
       <AnimatePresence>
         {pendingFiles.length > 0 && (
@@ -218,10 +296,11 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           disabled={disabled}
-          placeholder={disabled ? "Waiting for response..." : "Message AI Agent..."}
+          placeholder={disabled ? "Waiting for response..." : "Drop files or type a message..."}
           rows={1}
           className="flex-1 bg-transparent py-3.5 text-[0.9375rem] leading-relaxed
                      placeholder:text-muted-foreground/40 focus:outline-none
